@@ -14,6 +14,16 @@ public class CubeRushServer extends WebSocketServer {
     private static final AtomicInteger NEXT_ID =
             new AtomicInteger(1);
 
+    private static final float WORLD_SIZE = 2200f;
+
+    private static final int MAX_HP = 100;
+
+    private static final int DAMAGE = 25;
+
+    private static final float SHOOT_RANGE = 900f;
+
+    private static final float HIT_RADIUS = 55f;
+
     private final Map<WebSocket, Player> players =
             new ConcurrentHashMap<WebSocket, Player>();
 
@@ -26,7 +36,8 @@ public class CubeRushServer extends WebSocketServer {
             WebSocket conn,
             ClientHandshake handshake) {
 
-        int id = NEXT_ID.getAndIncrement();
+        int id =
+                NEXT_ID.getAndIncrement();
 
         Player player =
                 new Player(
@@ -36,7 +47,10 @@ public class CubeRushServer extends WebSocketServer {
                         "Player" + id
                 );
 
-        players.put(conn, player);
+        players.put(
+                conn,
+                player
+        );
 
         conn.send(
                 "WELCOME|" +
@@ -46,6 +60,8 @@ public class CubeRushServer extends WebSocketServer {
         sendPlayers();
 
         sendNamesTo(conn);
+
+        sendHealthTo(conn);
 
         System.out.println(
                 "Player " +
@@ -107,8 +123,6 @@ public class CubeRushServer extends WebSocketServer {
         }
 
         /*
-         * MOVIMENTO
-         *
          * MOVE|x|y
          */
         if (
@@ -127,6 +141,25 @@ public class CubeRushServer extends WebSocketServer {
                         Float.parseFloat(
                                 data[2]
                         );
+
+                float half =
+                        WORLD_SIZE / 2f;
+
+                if (x < -half) {
+                    x = -half;
+                }
+
+                if (x > half) {
+                    x = half;
+                }
+
+                if (y < -half) {
+                    y = -half;
+                }
+
+                if (y > half) {
+                    y = half;
+                }
 
                 player.x = x;
                 player.y = y;
@@ -152,8 +185,6 @@ public class CubeRushServer extends WebSocketServer {
         }
 
         /*
-         * NOME
-         *
          * NAME|nome
          */
         if (
@@ -171,10 +202,16 @@ public class CubeRushServer extends WebSocketServer {
                                     "\r",
                                     ""
                             )
+                            .replace(
+                                    "|",
+                                    ""
+                            )
                             .trim();
 
             if (name.length() == 0) {
-                name = "Player" + player.id;
+                name =
+                        "Player" +
+                        player.id;
             }
 
             if (name.length() > 16) {
@@ -194,19 +231,10 @@ public class CubeRushServer extends WebSocketServer {
                     player.name
             );
 
-            System.out.println(
-                    "Player " +
-                    player.id +
-                    " name: " +
-                    player.name
-            );
-
             return;
         }
 
         /*
-         * CHAT
-         *
          * CHAT|nome|mensagem
          */
         if (
@@ -231,7 +259,6 @@ public class CubeRushServer extends WebSocketServer {
             }
 
             if (text.length() > 100) {
-
                 text =
                         text.substring(
                                 0,
@@ -239,13 +266,6 @@ public class CubeRushServer extends WebSocketServer {
                         );
             }
 
-            /*
-             * O servidor usa o nome
-             * registrado no Player.
-             *
-             * Assim ninguém consegue
-             * fingir ser outro jogador.
-             */
             sendAll(
                     "CHAT|" +
                     player.name +
@@ -262,6 +282,251 @@ public class CubeRushServer extends WebSocketServer {
 
             return;
         }
+
+        /*
+         * SHOOT|dx|dy
+         *
+         * O cliente envia somente
+         * a direção.
+         *
+         * O servidor calcula
+         * quem foi atingido.
+         */
+        if (
+                data.length >= 3 &&
+                "SHOOT".equals(data[0])
+        ) {
+
+            try {
+
+                float dx =
+                        Float.parseFloat(
+                                data[1]
+                        );
+
+                float dy =
+                        Float.parseFloat(
+                                data[2]
+                        );
+
+                processShot(
+                        player,
+                        dx,
+                        dy
+                );
+
+            } catch (NumberFormatException e) {
+
+                System.out.println(
+                        "Invalid SHOOT: " +
+                        message
+                );
+            }
+
+            return;
+        }
+    }
+
+    private void processShot(
+            Player shooter,
+            float dx,
+            float dy) {
+
+        if (!shooter.alive) {
+            return;
+        }
+
+        float length =
+                (float)Math.sqrt(
+                        dx * dx +
+                        dy * dy
+                );
+
+        if (length < 0.001f) {
+            return;
+        }
+
+        dx /= length;
+        dy /= length;
+
+        long now =
+                System.currentTimeMillis();
+
+        if (
+                now -
+                shooter.lastShot <
+                100
+        ) {
+            return;
+        }
+
+        shooter.lastShot = now;
+
+        Player target = null;
+
+        float closestDistance =
+                SHOOT_RANGE + 1;
+
+        for (
+                Player other :
+                players.values()
+        ) {
+
+            if (other == shooter) {
+                continue;
+            }
+
+            if (!other.alive) {
+                continue;
+            }
+
+            float vx =
+                    other.x -
+                    shooter.x;
+
+            float vy =
+                    other.y -
+                    shooter.y;
+
+            float forward =
+                    vx * dx +
+                    vy * dy;
+
+            if (
+                    forward <= 0 ||
+                    forward > SHOOT_RANGE
+            ) {
+                continue;
+            }
+
+            float perpendicularX =
+                    vx -
+                    dx * forward;
+
+            float perpendicularY =
+                    vy -
+                    dy * forward;
+
+            float perpendicularDistance =
+                    (float)Math.sqrt(
+                            perpendicularX *
+                            perpendicularX +
+                            perpendicularY *
+                            perpendicularY
+                    );
+
+            if (
+                    perpendicularDistance <=
+                    HIT_RADIUS
+            ) {
+
+                if (
+                        forward <
+                        closestDistance
+                ) {
+
+                    closestDistance =
+                            forward;
+
+                    target = other;
+                }
+            }
+        }
+
+        if (target == null) {
+            return;
+        }
+
+        target.hp -= DAMAGE;
+
+        if (target.hp < 0) {
+            target.hp = 0;
+        }
+
+        sendAll(
+                "HIT|" +
+                shooter.id +
+                "|" +
+                target.id +
+                "|" +
+                target.hp
+        );
+
+        if (target.hp <= 0) {
+
+            target.alive = false;
+
+            sendAll(
+                    "DEAD|" +
+                    target.id
+            );
+
+            new Thread(
+                    new Runnable() {
+                        @Override
+                        public void run() {
+
+                            try {
+                                Thread.sleep(2500);
+                            } catch (
+                                    InterruptedException e
+                            ) {
+                                return;
+                            }
+
+                            Player targetPlayer =
+                                    findPlayerById(
+                                            target.id
+                                    );
+
+                            if (
+                                    targetPlayer ==
+                                    null
+                            ) {
+                                return;
+                            }
+
+                            targetPlayer.x = 0;
+                            targetPlayer.y = 0;
+                            targetPlayer.hp = MAX_HP;
+                            targetPlayer.alive = true;
+
+                            sendAll(
+                                    "RESPAWN|" +
+                                    targetPlayer.id +
+                                    "|" +
+                                    targetPlayer.x +
+                                    "|" +
+                                    targetPlayer.y +
+                                    "|" +
+                                    targetPlayer.hp
+                            );
+
+                            System.out.println(
+                                    "Player " +
+                                    targetPlayer.id +
+                                    " respawned."
+                            );
+                        }
+                    }
+            ).start();
+        }
+    }
+
+    private Player findPlayerById(
+            int id) {
+
+        for (
+                Player player :
+                players.values()
+        ) {
+
+            if (player.id == id) {
+                return player;
+            }
+        }
+
+        return null;
     }
 
     @Override
@@ -288,12 +553,6 @@ public class CubeRushServer extends WebSocketServer {
         );
     }
 
-    /*
-     * Envia a posição de todos
-     * os jogadores.
-     *
-     * PLAYERS|id|x|y|id|x|y...
-     */
     private void sendPlayers() {
 
         StringBuilder message =
@@ -319,10 +578,6 @@ public class CubeRushServer extends WebSocketServer {
         );
     }
 
-    /*
-     * Envia os nomes atuais
-     * para quem acabou de entrar.
-     */
     private void sendNamesTo(
             WebSocket target) {
 
@@ -347,10 +602,38 @@ public class CubeRushServer extends WebSocketServer {
         }
     }
 
-    /*
-     * Envia mensagem para
-     * todos os jogadores.
-     */
+    private void sendHealthTo(
+            WebSocket target) {
+
+        if (
+                target == null ||
+                !target.isOpen()
+        ) {
+            return;
+        }
+
+        for (
+                Player player :
+                players.values()
+        ) {
+
+            target.send(
+                    "HEALTH|" +
+                    player.id +
+                    "|" +
+                    player.hp
+            );
+
+            if (!player.alive) {
+
+                target.send(
+                        "DEAD|" +
+                        player.id
+                );
+            }
+        }
+    }
+
     private void sendAll(
             String message) {
 
@@ -378,7 +661,13 @@ public class CubeRushServer extends WebSocketServer {
         float x;
         float y;
 
+        int hp;
+
+        boolean alive;
+
         String name;
+
+        long lastShot;
 
         Player(
                 int id,
@@ -390,6 +679,10 @@ public class CubeRushServer extends WebSocketServer {
             this.x = x;
             this.y = y;
             this.name = name;
+
+            this.hp = MAX_HP;
+            this.alive = true;
+            this.lastShot = 0;
         }
     }
 
@@ -430,4 +723,4 @@ public class CubeRushServer extends WebSocketServer {
 
         server.start();
     }
-                }
+            }
