@@ -22,18 +22,36 @@ public class CubeRushServer extends WebSocketServer {
     }
 
     @Override
-    public void onOpen(WebSocket conn, ClientHandshake handshake) {
+    public void onOpen(
+            WebSocket conn,
+            ClientHandshake handshake) {
 
         int id = NEXT_ID.getAndIncrement();
 
-        Player player = new Player(id, 0, 0);
+        Player player =
+                new Player(
+                        id,
+                        0,
+                        0,
+                        "Player" + id
+                );
+
         players.put(conn, player);
 
-        conn.send("WELCOME|" + id);
+        conn.send(
+                "WELCOME|" +
+                id
+        );
 
         sendPlayers();
 
-        System.out.println("Player " + id + " connected.");
+        sendNamesTo(conn);
+
+        System.out.println(
+                "Player " +
+                id +
+                " connected."
+        );
     }
 
     @Override
@@ -43,11 +61,15 @@ public class CubeRushServer extends WebSocketServer {
             String reason,
             boolean remote) {
 
-        Player player = players.remove(conn);
+        Player player =
+                players.remove(conn);
 
         if (player != null) {
 
-            sendAll("LEAVE|" + player.id);
+            sendAll(
+                    "LEAVE|" +
+                    player.id
+            );
 
             sendPlayers();
 
@@ -64,24 +86,47 @@ public class CubeRushServer extends WebSocketServer {
             WebSocket conn,
             String message) {
 
-        Player player = players.get(conn);
+        Player player =
+                players.get(conn);
 
-        if (player == null || message == null) {
+        if (
+                player == null ||
+                message == null
+        ) {
             return;
         }
 
-        String[] data = message.split("\\|");
+        String[] data =
+                message.split(
+                        "\\|",
+                        -1
+                );
 
-        if (data.length == 3 &&
-                "MOVE".equals(data[0])) {
+        if (data.length == 0) {
+            return;
+        }
+
+        /*
+         * MOVIMENTO
+         *
+         * MOVE|x|y
+         */
+        if (
+                data.length == 3 &&
+                "MOVE".equals(data[0])
+        ) {
 
             try {
 
                 float x =
-                        Float.parseFloat(data[1]);
+                        Float.parseFloat(
+                                data[1]
+                        );
 
                 float y =
-                        Float.parseFloat(data[2]);
+                        Float.parseFloat(
+                                data[2]
+                        );
 
                 player.x = x;
                 player.y = y;
@@ -96,11 +141,126 @@ public class CubeRushServer extends WebSocketServer {
                 );
 
             } catch (NumberFormatException e) {
+
                 System.out.println(
                         "Invalid MOVE: " +
                         message
                 );
             }
+
+            return;
+        }
+
+        /*
+         * NOME
+         *
+         * NAME|nome
+         */
+        if (
+                data.length >= 2 &&
+                "NAME".equals(data[0])
+        ) {
+
+            String name =
+                    data[1]
+                            .replace(
+                                    "\n",
+                                    ""
+                            )
+                            .replace(
+                                    "\r",
+                                    ""
+                            )
+                            .trim();
+
+            if (name.length() == 0) {
+                name = "Player" + player.id;
+            }
+
+            if (name.length() > 16) {
+                name =
+                        name.substring(
+                                0,
+                                16
+                        );
+            }
+
+            player.name = name;
+
+            sendAll(
+                    "NAME|" +
+                    player.id +
+                    "|" +
+                    player.name
+            );
+
+            System.out.println(
+                    "Player " +
+                    player.id +
+                    " name: " +
+                    player.name
+            );
+
+            return;
+        }
+
+        /*
+         * CHAT
+         *
+         * CHAT|nome|mensagem
+         */
+        if (
+                data.length >= 3 &&
+                "CHAT".equals(data[0])
+        ) {
+
+            String text =
+                    data[2]
+                            .replace(
+                                    "\n",
+                                    ""
+                            )
+                            .replace(
+                                    "\r",
+                                    ""
+                            )
+                            .trim();
+
+            if (text.length() == 0) {
+                return;
+            }
+
+            if (text.length() > 100) {
+
+                text =
+                        text.substring(
+                                0,
+                                100
+                        );
+            }
+
+            /*
+             * O servidor usa o nome
+             * registrado no Player.
+             *
+             * Assim ninguém consegue
+             * fingir ser outro jogador.
+             */
+            sendAll(
+                    "CHAT|" +
+                    player.name +
+                    "|" +
+                    text
+            );
+
+            System.out.println(
+                    "[CHAT] " +
+                    player.name +
+                    ": " +
+                    text
+            );
+
+            return;
         }
     }
 
@@ -128,12 +288,23 @@ public class CubeRushServer extends WebSocketServer {
         );
     }
 
+    /*
+     * Envia a posição de todos
+     * os jogadores.
+     *
+     * PLAYERS|id|x|y|id|x|y...
+     */
     private void sendPlayers() {
 
         StringBuilder message =
-                new StringBuilder("PLAYERS");
+                new StringBuilder(
+                        "PLAYERS"
+                );
 
-        for (Player player : players.values()) {
+        for (
+                Player player :
+                players.values()
+        ) {
 
             message.append("|")
                     .append(player.id)
@@ -143,18 +314,59 @@ public class CubeRushServer extends WebSocketServer {
                     .append(player.y);
         }
 
-        sendAll(message.toString());
+        sendAll(
+                message.toString()
+        );
     }
 
-    private void sendAll(String message) {
+    /*
+     * Envia os nomes atuais
+     * para quem acabou de entrar.
+     */
+    private void sendNamesTo(
+            WebSocket target) {
 
-        for (WebSocket connection :
-                players.keySet()) {
+        if (
+                target == null ||
+                !target.isOpen()
+        ) {
+            return;
+        }
 
-            if (connection != null &&
-                    connection.isOpen()) {
+        for (
+                Player player :
+                players.values()
+        ) {
 
-                connection.send(message);
+            target.send(
+                    "NAME|" +
+                    player.id +
+                    "|" +
+                    player.name
+            );
+        }
+    }
+
+    /*
+     * Envia mensagem para
+     * todos os jogadores.
+     */
+    private void sendAll(
+            String message) {
+
+        for (
+                WebSocket connection :
+                players.keySet()
+        ) {
+
+            if (
+                    connection != null &&
+                    connection.isOpen()
+            ) {
+
+                connection.send(
+                        message
+                );
             }
         }
     }
@@ -162,29 +374,39 @@ public class CubeRushServer extends WebSocketServer {
     private static class Player {
 
         int id;
+
         float x;
         float y;
+
+        String name;
 
         Player(
                 int id,
                 float x,
-                float y) {
+                float y,
+                String name) {
 
             this.id = id;
             this.x = x;
             this.y = y;
+            this.name = name;
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(
+            String[] args) {
 
         int port = 10000;
 
         String renderPort =
-                System.getenv("PORT");
+                System.getenv(
+                        "PORT"
+                );
 
-        if (renderPort != null &&
-                renderPort.length() > 0) {
+        if (
+                renderPort != null &&
+                renderPort.length() > 0
+        ) {
 
             try {
 
@@ -193,15 +415,19 @@ public class CubeRushServer extends WebSocketServer {
                                 renderPort
                         );
 
-            } catch (NumberFormatException e) {
+            } catch (
+                    NumberFormatException e
+            ) {
 
                 port = 10000;
             }
         }
 
         CubeRushServer server =
-                new CubeRushServer(port);
+                new CubeRushServer(
+                        port
+                );
 
         server.start();
     }
-}
+                }
