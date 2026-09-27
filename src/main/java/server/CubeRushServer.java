@@ -17,12 +17,12 @@ public class CubeRushServer extends WebSocketServer {
     private static final float WORLD_SIZE = 2200f;
 
     private static final int MAX_HP = 100;
-
     private static final int DAMAGE = 25;
 
     private static final float SHOOT_RANGE = 900f;
-
     private static final float HIT_RADIUS = 55f;
+
+    private static final long SHOT_COOLDOWN = 100;
 
     private final Map<WebSocket, Player> players =
             new ConcurrentHashMap<WebSocket, Player>();
@@ -36,26 +36,18 @@ public class CubeRushServer extends WebSocketServer {
             WebSocket conn,
             ClientHandshake handshake) {
 
-        int id =
-                NEXT_ID.getAndIncrement();
+        int id = NEXT_ID.getAndIncrement();
 
-        Player player =
-                new Player(
-                        id,
-                        0,
-                        0,
-                        "Player" + id
-                );
-
-        players.put(
-                conn,
-                player
+        Player player = new Player(
+                id,
+                0,
+                0,
+                "Player" + id
         );
 
-        conn.send(
-                "WELCOME|" +
-                id
-        );
+        players.put(conn, player);
+
+        conn.send("WELCOME|" + id);
 
         sendPlayers();
 
@@ -64,9 +56,7 @@ public class CubeRushServer extends WebSocketServer {
         sendHealthTo(conn);
 
         System.out.println(
-                "Player " +
-                id +
-                " connected."
+                "Player " + id + " connected."
         );
     }
 
@@ -77,8 +67,7 @@ public class CubeRushServer extends WebSocketServer {
             String reason,
             boolean remote) {
 
-        Player player =
-                players.remove(conn);
+        Player player = players.remove(conn);
 
         if (player != null) {
 
@@ -102,45 +91,31 @@ public class CubeRushServer extends WebSocketServer {
             WebSocket conn,
             String message) {
 
-        Player player =
-                players.get(conn);
+        Player player = players.get(conn);
 
-        if (
-                player == null ||
-                message == null
-        ) {
-            return;
-        }
+        if (player == null) return;
+        if (message == null) return;
 
         String[] data =
-                message.split(
-                        "\\|",
-                        -1
-                );
+                message.split("\\|", -1);
 
-        if (data.length == 0) {
-            return;
-        }
+        if (data.length == 0) return;
 
-        /*
-         * MOVE|x|y
-         */
-        if (
-                data.length == 3 &&
-                "MOVE".equals(data[0])
-        ) {
+
+        // =========================
+        // MOVEMENT
+        // =========================
+
+        if (data.length == 3 &&
+                "MOVE".equals(data[0])) {
 
             try {
 
                 float x =
-                        Float.parseFloat(
-                                data[1]
-                        );
+                        Float.parseFloat(data[1]);
 
                 float y =
-                        Float.parseFloat(
-                                data[2]
-                        );
+                        Float.parseFloat(data[2]);
 
                 float half =
                         WORLD_SIZE / 2f;
@@ -184,42 +159,32 @@ public class CubeRushServer extends WebSocketServer {
             return;
         }
 
-        /*
-         * NAME|nome
-         */
-        if (
-                data.length >= 2 &&
-                "NAME".equals(data[0])
-        ) {
+
+        // =========================
+        // NAME
+        // =========================
+
+        if (data.length >= 2 &&
+                "NAME".equals(data[0])) {
 
             String name =
                     data[1]
-                            .replace(
-                                    "\n",
-                                    ""
-                            )
-                            .replace(
-                                    "\r",
-                                    ""
-                            )
-                            .replace(
-                                    "|",
-                                    ""
-                            )
-                            .trim();
+                    .replace("\n", "")
+                    .replace("\r", "")
+                    .replace("|", "")
+                    .trim();
 
             if (name.length() == 0) {
+
                 name =
                         "Player" +
                         player.id;
             }
 
             if (name.length() > 16) {
+
                 name =
-                        name.substring(
-                                0,
-                                16
-                        );
+                        name.substring(0, 16);
             }
 
             player.name = name;
@@ -234,36 +199,28 @@ public class CubeRushServer extends WebSocketServer {
             return;
         }
 
-        /*
-         * CHAT|nome|mensagem
-         */
-        if (
-                data.length >= 3 &&
-                "CHAT".equals(data[0])
-        ) {
+
+        // =========================
+        // CHAT
+        // =========================
+
+        if (data.length >= 3 &&
+                "CHAT".equals(data[0])) {
 
             String text =
                     data[2]
-                            .replace(
-                                    "\n",
-                                    ""
-                            )
-                            .replace(
-                                    "\r",
-                                    ""
-                            )
-                            .trim();
+                    .replace("\n", "")
+                    .replace("\r", "")
+                    .trim();
 
             if (text.length() == 0) {
                 return;
             }
 
             if (text.length() > 100) {
+
                 text =
-                        text.substring(
-                                0,
-                                100
-                        );
+                        text.substring(0, 100);
             }
 
             sendAll(
@@ -283,31 +240,21 @@ public class CubeRushServer extends WebSocketServer {
             return;
         }
 
-        /*
-         * SHOOT|dx|dy
-         *
-         * O cliente envia somente
-         * a direção.
-         *
-         * O servidor calcula
-         * quem foi atingido.
-         */
-        if (
-                data.length >= 3 &&
-                "SHOOT".equals(data[0])
-        ) {
+
+        // =========================
+        // SHOOT
+        // =========================
+
+        if (data.length >= 3 &&
+                "SHOOT".equals(data[0])) {
 
             try {
 
                 float dx =
-                        Float.parseFloat(
-                                data[1]
-                        );
+                        Float.parseFloat(data[1]);
 
                 float dy =
-                        Float.parseFloat(
-                                data[2]
-                        );
+                        Float.parseFloat(data[2]);
 
                 processShot(
                         player,
@@ -327,6 +274,11 @@ public class CubeRushServer extends WebSocketServer {
         }
     }
 
+
+    // =========================
+    // PROCESS SHOT
+    // =========================
+
     private void processShot(
             Player shooter,
             float dx,
@@ -337,7 +289,7 @@ public class CubeRushServer extends WebSocketServer {
         }
 
         float length =
-                (float)Math.sqrt(
+                (float) Math.sqrt(
                         dx * dx +
                         dy * dy
                 );
@@ -352,11 +304,9 @@ public class CubeRushServer extends WebSocketServer {
         long now =
                 System.currentTimeMillis();
 
-        if (
-                now -
-                shooter.lastShot <
-                100
-        ) {
+        if (now - shooter.lastShot <
+                SHOT_COOLDOWN) {
+
             return;
         }
 
@@ -367,10 +317,13 @@ public class CubeRushServer extends WebSocketServer {
         float closestDistance =
                 SHOOT_RANGE + 1;
 
-        for (
-                Player other :
-                players.values()
-        ) {
+
+        // =========================
+        // FIND TARGET
+        // =========================
+
+        for (Player other :
+                players.values()) {
 
             if (other == shooter) {
                 continue;
@@ -392,10 +345,13 @@ public class CubeRushServer extends WebSocketServer {
                     vx * dx +
                     vy * dy;
 
-            if (
-                    forward <= 0 ||
-                    forward > SHOOT_RANGE
-            ) {
+            if (forward <= 0) {
+                continue;
+            }
+
+            if (forward >
+                    SHOOT_RANGE) {
+
                 continue;
             }
 
@@ -408,22 +364,18 @@ public class CubeRushServer extends WebSocketServer {
                     dy * forward;
 
             float perpendicularDistance =
-                    (float)Math.sqrt(
+                    (float) Math.sqrt(
                             perpendicularX *
                             perpendicularX +
                             perpendicularY *
                             perpendicularY
                     );
 
-            if (
-                    perpendicularDistance <=
-                    HIT_RADIUS
-            ) {
+            if (perpendicularDistance <=
+                    HIT_RADIUS) {
 
-                if (
-                        forward <
-                        closestDistance
-                ) {
+                if (forward <
+                        closestDistance) {
 
                     closestDistance =
                             forward;
@@ -433,9 +385,19 @@ public class CubeRushServer extends WebSocketServer {
             }
         }
 
+
+        // =========================
+        // NO TARGET
+        // =========================
+
         if (target == null) {
             return;
         }
+
+
+        // =========================
+        // DAMAGE
+        // =========================
 
         target.hp -= DAMAGE;
 
@@ -452,44 +414,68 @@ public class CubeRushServer extends WebSocketServer {
                 target.hp
         );
 
+
+        // =========================
+        // DEATH
+        // =========================
+
         if (target.hp <= 0) {
 
             target.alive = false;
 
+            final int targetId =
+                    target.id;
+
             sendAll(
                     "DEAD|" +
-                    target.id
+                    targetId
             );
+
+
+            // =========================
+            // RESPAWN
+            // =========================
 
             new Thread(
                     new Runnable() {
+
                         @Override
                         public void run() {
 
                             try {
-                                Thread.sleep(2500);
+
+                                Thread.sleep(
+                                        2500
+                                );
+
                             } catch (
-                                    InterruptedException e
-                            ) {
+                                    InterruptedException e) {
+
                                 return;
                             }
+
 
                             Player targetPlayer =
                                     findPlayerById(
-                                            target.id
+                                            targetId
                                     );
 
-                            if (
-                                    targetPlayer ==
-                                    null
-                            ) {
+                            if (targetPlayer ==
+                                    null) {
+
                                 return;
                             }
 
+
                             targetPlayer.x = 0;
                             targetPlayer.y = 0;
-                            targetPlayer.hp = MAX_HP;
-                            targetPlayer.alive = true;
+
+                            targetPlayer.hp =
+                                    MAX_HP;
+
+                            targetPlayer.alive =
+                                    true;
+
 
                             sendAll(
                                     "RESPAWN|" +
@@ -502,32 +488,37 @@ public class CubeRushServer extends WebSocketServer {
                                     targetPlayer.hp
                             );
 
-                            System.out.println(
-                                    "Player " +
-                                    targetPlayer.id +
-                                    " respawned."
-                            );
                         }
+
                     }
             ).start();
         }
     }
 
+
+    // =========================
+    // FIND PLAYER
+    // =========================
+
     private Player findPlayerById(
             int id) {
 
-        for (
-                Player player :
-                players.values()
-        ) {
+        for (Player player :
+                players.values()) {
 
             if (player.id == id) {
+
                 return player;
             }
         }
 
         return null;
     }
+
+
+    // =========================
+    // ERROR
+    // =========================
 
     @Override
     public void onError(
@@ -539,6 +530,11 @@ public class CubeRushServer extends WebSocketServer {
                 ex.getMessage()
         );
     }
+
+
+    // =========================
+    // START
+    // =========================
 
     @Override
     public void onStart() {
@@ -553,6 +549,11 @@ public class CubeRushServer extends WebSocketServer {
         );
     }
 
+
+    // =========================
+    // SEND PLAYERS
+    // =========================
+
     private void sendPlayers() {
 
         StringBuilder message =
@@ -560,15 +561,16 @@ public class CubeRushServer extends WebSocketServer {
                         "PLAYERS"
                 );
 
-        for (
-                Player player :
-                players.values()
-        ) {
+        for (Player player :
+                players.values()) {
 
-            message.append("|")
+            message
+                    .append("|")
                     .append(player.id)
+
                     .append("|")
                     .append(player.x)
+
                     .append("|")
                     .append(player.y);
         }
@@ -578,20 +580,24 @@ public class CubeRushServer extends WebSocketServer {
         );
     }
 
+
+    // =========================
+    // SEND NAMES
+    // =========================
+
     private void sendNamesTo(
             WebSocket target) {
 
-        if (
-                target == null ||
-                !target.isOpen()
-        ) {
+        if (target == null) {
             return;
         }
 
-        for (
-                Player player :
-                players.values()
-        ) {
+        if (!target.isOpen()) {
+            return;
+        }
+
+        for (Player player :
+                players.values()) {
 
             target.send(
                     "NAME|" +
@@ -602,20 +608,24 @@ public class CubeRushServer extends WebSocketServer {
         }
     }
 
+
+    // =========================
+    // SEND HEALTH
+    // =========================
+
     private void sendHealthTo(
             WebSocket target) {
 
-        if (
-                target == null ||
-                !target.isOpen()
-        ) {
+        if (target == null) {
             return;
         }
 
-        for (
-                Player player :
-                players.values()
-        ) {
+        if (!target.isOpen()) {
+            return;
+        }
+
+        for (Player player :
+                players.values()) {
 
             target.send(
                     "HEALTH|" +
@@ -634,18 +644,22 @@ public class CubeRushServer extends WebSocketServer {
         }
     }
 
+
+    // =========================
+    // SEND ALL
+    // =========================
+
     private void sendAll(
             String message) {
 
-        for (
-                WebSocket connection :
-                players.keySet()
-        ) {
+        for (WebSocket connection :
+                players.keySet()) {
 
-            if (
-                    connection != null &&
-                    connection.isOpen()
-            ) {
+            if (connection == null) {
+                continue;
+            }
+
+            if (connection.isOpen()) {
 
                 connection.send(
                         message
@@ -653,6 +667,11 @@ public class CubeRushServer extends WebSocketServer {
             }
         }
     }
+
+
+    // =========================
+    // PLAYER
+    // =========================
 
     private static class Player {
 
@@ -669,6 +688,7 @@ public class CubeRushServer extends WebSocketServer {
 
         long lastShot;
 
+
         Player(
                 int id,
                 float x,
@@ -676,15 +696,24 @@ public class CubeRushServer extends WebSocketServer {
                 String name) {
 
             this.id = id;
+
             this.x = x;
             this.y = y;
+
             this.name = name;
 
             this.hp = MAX_HP;
+
             this.alive = true;
+
             this.lastShot = 0;
         }
     }
+
+
+    // =========================
+    // MAIN
+    // =========================
 
     public static void main(
             String[] args) {
@@ -692,14 +721,10 @@ public class CubeRushServer extends WebSocketServer {
         int port = 10000;
 
         String renderPort =
-                System.getenv(
-                        "PORT"
-                );
+                System.getenv("PORT");
 
-        if (
-                renderPort != null &&
-                renderPort.length() > 0
-        ) {
+        if (renderPort != null &&
+                renderPort.length() > 0) {
 
             try {
 
@@ -709,12 +734,12 @@ public class CubeRushServer extends WebSocketServer {
                         );
 
             } catch (
-                    NumberFormatException e
-            ) {
+                    NumberFormatException e) {
 
                 port = 10000;
             }
         }
+
 
         CubeRushServer server =
                 new CubeRushServer(
@@ -723,4 +748,4 @@ public class CubeRushServer extends WebSocketServer {
 
         server.start();
     }
-            }
+                }
